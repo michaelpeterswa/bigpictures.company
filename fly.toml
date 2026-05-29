@@ -1,0 +1,35 @@
+# bigpictures.company on Fly.io.
+#
+# Tiles never touch Fly — the browser pulls them directly from
+# tiles.bigpictures.company (R2 custom domain). Fly only serves the gallery,
+# the viewer page shell, and the metadata query (Drizzle → Neon pooler).
+
+app             = "bigpictures-company"
+# `sea` (Seattle) was deprecated; `sjc` (San Jose) is Fly's suggested
+# Pacific replacement and the closest non-deprecated region.
+primary_region  = "sjc"
+
+[build]
+  dockerfile = "web/Dockerfile"
+
+[env]
+  NODE_ENV = "production"
+  PORT = "3000"
+
+[http_service]
+  internal_port = 3000
+  force_https = true
+  auto_stop_machines = "stop"      # scale to zero
+  auto_start_machines = true
+  min_machines_running = 0
+
+  [[http_service.checks]]
+    interval = "30s"
+    timeout  = "5s"
+    grace_period = "10s"
+    method  = "get"
+    path    = "/"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "512mb"
