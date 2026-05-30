@@ -82,3 +82,41 @@ fly.toml              # Fly deployment (Phase 10)
 All Go-side errors are RFC 9457 Problem Details. On a TTY they render as
 pretty text; piped output gets `application/problem+json` to stderr. Every
 problem type URI lives under `https://bigpictures.company/problems/<area>/<kind>`.
+
+## CI
+
+Workflows live in `.github/workflows/` and follow the layout from
+[michaelpeterswa/go-start](https://github.com/michaelpeterswa/go-start):
+
+- **`pull_request.yml`** — runs on every PR:
+  - `commitlint` against conventional-commits
+  - `golangci-lint` (Go 1.25.x)
+  - `yamllint`
+  - `hadolint` against `web/Dockerfile`
+  - `go test -race ./...` (installs `libvips-tools` for the tile-package tests)
+  - web pipeline: `pnpm install` → `pnpm lint` → `pnpm tsc --noEmit` → `pnpm build`
+- **`push_main.yml`** — runs on merges to `main`:
+  - `semantic-release` cuts a GitHub release from conventional-commits.
+    Requires a `GH_RELEASE_PAT` repository secret.
+- **`deploy_fly.yml`** — runs when a GitHub release is created (also
+  available as `workflow_dispatch`):
+  - `flyctl deploy --remote-only` against `fly.toml` at the repo root.
+    `fly.toml` pins `build.dockerfile = "web/Dockerfile"`, so the build
+    context is the repo root and Fly's remote builder handles the
+    multi-stage Next.js build.
+  - `NEXT_PUBLIC_TILE_BASE_URL` is read from repository **vars** (not
+    secrets) and passed through as a build arg so the value is inlined
+    into the bundle.
+
+The release → deploy chain: merge a conventional-commit to `main` →
+`push_main.yml` cuts a GitHub release → release `created` event fires
+`deploy_fly.yml` → Fly rolls out the new machine.
+
+To run every check locally:
+
+```
+make ci
+```
+
+This runs `golangci-lint run`, `go test -race ./...`, `pnpm lint`,
+`pnpm tsc --noEmit`, and `pnpm build` in sequence.

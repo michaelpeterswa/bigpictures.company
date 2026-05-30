@@ -12,11 +12,11 @@ import (
 )
 
 var (
-	titleStyle  = lipgloss.NewStyle().Bold(true).MarginBottom(1)
-	phaseStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("63"))
-	dimStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("241"))
-	errorStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("9"))
-	doneStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("10"))
+	titleStyle = lipgloss.NewStyle().Bold(true).MarginBottom(1)
+	phaseStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("63"))
+	dimStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("241"))
+	errorStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("9"))
+	doneStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("10"))
 )
 
 // ProgressModel renders two progress bars (tile + upload), a spinner, and the
@@ -36,6 +36,7 @@ type ProgressModel struct {
 	finalErr    error
 }
 
+// NewProgressModel constructs a ProgressModel with the given header title.
 func NewProgressModel(title string) ProgressModel {
 	t := progress.New(progress.WithDefaultGradient(), progress.WithWidth(40))
 	u := progress.New(progress.WithDefaultGradient(), progress.WithWidth(40))
@@ -50,16 +51,24 @@ func NewProgressModel(title string) ProgressModel {
 	}
 }
 
+// Init satisfies the bubbletea.Model interface; starts the spinner ticker.
 func (m ProgressModel) Init() tea.Cmd { return m.spinner.Tick }
 
 // Finished reports whether the model has reached a terminal state. The
 // caller's bubbletea program should be quit by sending tea.Quit once Finished
 // returns true; we don't auto-quit here so the caller can decide how to wrap
 // up (print summary, exit code, etc.).
-func (m ProgressModel) Finished() bool          { return m.finished }
-func (m ProgressModel) Result() *pipeline.Result { return m.finalResult }
-func (m ProgressModel) Err() error               { return m.finalErr }
+func (m ProgressModel) Finished() bool { return m.finished }
 
+// Result returns the pipeline result captured on completion, or nil before.
+func (m ProgressModel) Result() *pipeline.Result { return m.finalResult }
+
+// Err returns the pipeline error captured on completion, or nil before.
+func (m ProgressModel) Err() error { return m.finalErr }
+
+// Update satisfies the bubbletea.Model interface; routes typed messages
+// (PhaseMsg, TileProgressMsg, UploadProgressMsg, DoneMsg, ErrMsg) into the
+// bars and spinner.
 func (m ProgressModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
@@ -107,6 +116,8 @@ func (m ProgressModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+// View satisfies the bubbletea.Model interface; renders the header, spinner,
+// phase, and the two tile/upload progress bars.
 func (m ProgressModel) View() string {
 	header := titleStyle.Render(m.title)
 	if m.finished {
@@ -115,15 +126,18 @@ func (m ProgressModel) View() string {
 		}
 		return header + "\n" + doneStyle.Render("done") + "\n"
 	}
-	phase := fmt.Sprintf("%s %s",
+	phase := fmt.Sprintf(
+		"%s %s",
 		m.spinner.View(),
 		phaseStyle.Render(string(m.phase)),
 	)
-	tileRow := fmt.Sprintf("  tile  %s %s",
+	tileRow := fmt.Sprintf(
+		"  tile  %s %s",
 		m.tile.View(),
 		dimStyle.Render(fmt.Sprintf("%3d%%", m.tilePct)),
 	)
-	upRow := fmt.Sprintf("  ship  %s %s",
+	upRow := fmt.Sprintf(
+		"  ship  %s %s",
 		m.upload.View(),
 		dimStyle.Render(fmt.Sprintf("%d/%d", m.upDone, m.upTotal)),
 	)

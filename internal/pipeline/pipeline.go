@@ -28,8 +28,8 @@ import (
 
 // Request is the input to a full upload run.
 type Request struct {
-	Source      string     // local path to the .tiff
-	Slug        string     // pre-validated slug (use slug.FromTitle + slug.Validate)
+	Source      string // local path to the .tiff
+	Slug        string // pre-validated slug (use slug.FromTitle + slug.Validate)
 	Title       string
 	Description string
 	CapturedAt  *time.Time
@@ -43,14 +43,14 @@ type Request struct {
 
 // Result is what the orchestrator returns on success.
 type Result struct {
-	ID           string
-	Slug         string
-	Width        int
-	Height       int
-	TileCount    int
-	TilePrefix   string // e.g. panos/<slug>
-	OriginalKey  string // e.g. originals/<slug>.tiff
-	InfoJSONURL  string // full public URL
+	ID          string
+	Slug        string
+	Width       int
+	Height      int
+	TileCount   int
+	TilePrefix  string // e.g. panos/<slug>
+	OriginalKey string // e.g. originals/<slug>.tiff
+	InfoJSONURL string // full public URL
 }
 
 // Tiler is the subset of internal/tile this orchestrator uses.
@@ -121,15 +121,16 @@ type Options struct {
 // Phase enumerates the orchestrator stages, in order.
 type Phase string
 
+// Phase constants, in the order emitted by Runner.Run.
 const (
-	PhaseValidate     Phase = "validate"
-	PhaseTile         Phase = "tile"
-	PhaseExif         Phase = "exif"
-	PhaseThumbs       Phase = "thumbs"
-	PhaseUploadTiles  Phase = "upload-tiles"
+	PhaseValidate       Phase = "validate"
+	PhaseTile           Phase = "tile"
+	PhaseExif           Phase = "exif"
+	PhaseThumbs         Phase = "thumbs"
+	PhaseUploadTiles    Phase = "upload-tiles"
 	PhaseUploadOriginal Phase = "upload-original"
-	PhaseInsert       Phase = "insert"
-	PhaseDone         Phase = "done"
+	PhaseInsert         Phase = "insert"
+	PhaseDone           Phase = "done"
 )
 
 // Runner glues a Tiler/Uploader/Repo together.
@@ -334,4 +335,3 @@ func SourceNotFound(err error) bool {
 	}
 	return false
 }
-

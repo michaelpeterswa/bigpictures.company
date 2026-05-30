@@ -18,7 +18,7 @@ export function Viewer({ infoJsonURL, title }: Props) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const wrapperRef = useRef<HTMLDivElement | null>(null);
   const { viewer, zoom, home } = useOpenSeadragon({ containerRef, infoJsonURL });
-  const idle = useIdle(wrapperRef.current, idleMs);
+  const idle = useIdle(wrapperRef, idleMs);
 
   // Keyboard shortcuts not already handled by OSD. OSD owns +/-/arrows;
   // we add `0` (home), `r` (rotate), `f` (fullscreen).

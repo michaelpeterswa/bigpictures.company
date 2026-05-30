@@ -34,14 +34,17 @@ func (c *Client) PutOriginal(ctx context.Context, localPath, key string, opts Mu
 		return problems.New("upload/object-failed", "Could not open original",
 			err.Error(), problems.WithExt(problems.Ext("path", localPath)))
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
-	up := manager.NewUploader(c.s3, func(u *manager.Uploader) {
+	// feature/s3/manager is deprecated in favor of feature/s3/transfermanager,
+	// but the replacement has a different API surface and we already validate
+	// the manager-based flow against real R2. Pin to the stable API for now.
+	up := manager.NewUploader(c.s3, func(u *manager.Uploader) { //nolint:staticcheck // SA1019: see comment
 		u.PartSize = opts.PartSizeBytes
 		u.Concurrency = opts.Concurrency
 	})
 
-	_, err = up.Upload(ctx, &s3.PutObjectInput{
+	_, err = up.Upload(ctx, &s3.PutObjectInput{ //nolint:staticcheck // SA1019: see NewUploader comment
 		Bucket:       aws.String(c.bucket),
 		Key:          aws.String(key),
 		Body:         f,

@@ -59,7 +59,7 @@ func TestBuildGPS_Quadrants(t *testing.T) {
 	lat := []exifcommon.Rational{rational(46, 1), rational(55, 1), rational(33, 1)}
 	lon := []exifcommon.Rational{rational(121, 1), rational(33, 1), rational(25, 1)}
 	cases := []struct {
-		latRef, lonRef    string
+		latRef, lonRef           string
 		wantSignLat, wantSignLon float64
 	}{
 		{"N", "E", 1, 1},

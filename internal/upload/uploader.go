@@ -171,7 +171,7 @@ func (c *Client) putFile(ctx context.Context, localPath, key string) error {
 		return problems.New("upload/object-failed", "Could not open local file", err.Error(),
 			problems.WithExt(problems.Ext("path", localPath), problems.Ext("key", key)))
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	fi, err := f.Stat()
 	if err != nil {
 		return problems.New("upload/object-failed", "Could not stat local file", err.Error(),
@@ -255,11 +255,11 @@ func wrapPutErr(err error, key string) error {
 	// Cloudflare R2 returns 401/403 on auth failures and 429/503 on rate
 	// limiting. Smithy surfaces these as ResponseError with HTTPStatusCode.
 	if code, ok := httpStatus(err); ok {
-		switch {
-		case code == 401 || code == 403:
+		switch code {
+		case 401, 403:
 			return problems.New("upload/auth-failed", "R2 rejected credentials",
 				err.Error(), problems.WithExt(problems.Ext("key", key), problems.Ext("status", code)))
-		case code == 429 || code == 503:
+		case 429, 503:
 			return problems.New("upload/rate-limited", "R2 rate-limited the upload",
 				err.Error(), problems.WithExt(problems.Ext("key", key), problems.Ext("status", code)))
 		}

@@ -5,5 +5,7 @@ package migrations
 
 import "embed"
 
+// FS is the read-only filesystem holding every migration SQL file.
+//
 //go:embed *.sql
 var FS embed.FS

@@ -64,7 +64,7 @@ func newReprocessCmd() *cobra.Command {
 			if err != nil {
 				return fmt.Errorf("create temp: %w", err)
 			}
-			defer os.Remove(tmp.Name())
+			defer func() { _ = os.Remove(tmp.Name()) }()
 			obj, err := r2.S3().GetObject(cmd.Context(), &s3.GetObjectInput{
 				Bucket: aws.String(r2.Bucket()),
 				Key:    aws.String(row.OriginalPath),
@@ -72,7 +72,7 @@ func newReprocessCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			defer obj.Body.Close()
+			defer func() { _ = obj.Body.Close() }()
 			if _, err := tmp.ReadFrom(obj.Body); err != nil {
 				return err
 			}

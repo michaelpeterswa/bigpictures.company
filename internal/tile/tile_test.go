@@ -141,7 +141,7 @@ func TestThumbnails(t *testing.T) {
 
 func TestParseVipsVersion(t *testing.T) {
 	cases := []struct {
-		in              string
+		in               string
 		wantMaj, wantMin int
 		ok               bool
 	}{

@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/golang-migrate/migrate/v4"
+	// Register the pgx5 database driver used by golang-migrate.
 	_ "github.com/golang-migrate/migrate/v4/database/pgx/v5"
 	"github.com/golang-migrate/migrate/v4/source/iofs"
 
@@ -106,4 +107,3 @@ func rewriteSchemeForPGX5(url string) string {
 	}
 	return url
 }
-

@@ -56,7 +56,8 @@ func (d *DB) InsertPanorama(ctx context.Context, p *Panorama) (string, error) {
 		)
 	}
 	var id string
-	row := d.pool.QueryRow(ctx, q,
+	row := d.pool.QueryRow(
+		ctx, q,
 		p.Slug, p.Title, p.Description, p.CapturedAt, locArg,
 		p.Width, p.Height, p.TilePath, p.ThumbPrefix, p.OriginalPath,
 		nullableJSON(p.EXIF), p.Tags,
@@ -81,9 +82,9 @@ func (d *DB) GetPanoramaBySlug(ctx context.Context, slug string) (*Panorama, err
 		where slug = $1
 	`
 	var (
-		out      Panorama
-		locHex   *string
-		exifRaw  []byte
+		out     Panorama
+		locHex  *string
+		exifRaw []byte
 	)
 	row := d.pool.QueryRow(ctx, q, slug)
 	if err := row.Scan(

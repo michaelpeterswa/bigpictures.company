@@ -15,11 +15,11 @@ import (
 // Phase 5 lands.
 func newTileCmd() *cobra.Command {
 	var (
-		out       string
-		idURL     string
-		quality   int
-		tileSize  int
-		keepTmp   bool
+		out         string
+		idURL       string
+		quality     int
+		tileSize    int
+		keepTmp     bool
 		concurrency int
 	)
 	cmd := &cobra.Command{
@@ -51,7 +51,8 @@ func newTileCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			fmt.Fprintf(cmd.OutOrStdout(),
+			fmt.Fprintf(
+				cmd.OutOrStdout(),
 				"ok: %dx%d, %d tiles\n  info: %s\n",
 				res.Width, res.Height, res.TileCount, res.InfoJSONPath,
 			)

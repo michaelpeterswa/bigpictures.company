@@ -64,14 +64,14 @@ func (fakeTiler) Thumbnails(ctx context.Context, src, outDir string, widths []in
 
 // fakeUploader records calls and can be configured to fail at specific steps.
 type fakeUploader struct {
-	uploads       []string
-	originals     []string
-	asserted      []string
+	uploads        []string
+	originals      []string
+	asserted       []string
 	deletePrefixes []string
-	deleteKeys    []string
+	deleteKeys     []string
 
-	failAtUploadIdx  int // 0=disabled, otherwise fail on the N-th UploadDir call
-	failPutOriginal  bool
+	failAtUploadIdx   int // 0=disabled, otherwise fail on the N-th UploadDir call
+	failPutOriginal   bool
 	failAssertHeaders bool
 }
 
@@ -82,6 +82,7 @@ func (u *fakeUploader) UploadDir(ctx context.Context, localDir, keyPrefix string
 	}
 	return nil
 }
+
 func (u *fakeUploader) PutOriginal(ctx context.Context, localPath, key string) error {
 	u.originals = append(u.originals, key)
 	if u.failPutOriginal {
@@ -89,6 +90,7 @@ func (u *fakeUploader) PutOriginal(ctx context.Context, localPath, key string) e
 	}
 	return nil
 }
+
 func (u *fakeUploader) AssertHeaders(ctx context.Context, key string) error {
 	u.asserted = append(u.asserted, key)
 	if u.failAssertHeaders {
@@ -96,10 +98,12 @@ func (u *fakeUploader) AssertHeaders(ctx context.Context, key string) error {
 	}
 	return nil
 }
+
 func (u *fakeUploader) DeletePrefix(ctx context.Context, prefix string) error {
 	u.deletePrefixes = append(u.deletePrefixes, prefix)
 	return nil
 }
+
 func (u *fakeUploader) DeleteKey(ctx context.Context, key string) error {
 	u.deleteKeys = append(u.deleteKeys, key)
 	return nil
@@ -107,7 +111,7 @@ func (u *fakeUploader) DeleteKey(ctx context.Context, key string) error {
 
 // fakeRepo records inserts.
 type fakeRepo struct {
-	inserts []db.Panorama
+	inserts    []db.Panorama
 	failInsert error
 }
 

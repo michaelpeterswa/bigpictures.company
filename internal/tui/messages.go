@@ -27,8 +27,18 @@ type DoneMsg struct{ Result *pipeline.Result }
 type ErrMsg struct{ Err error }
 
 // SendPhase returns a tea.Cmd that emits a PhaseMsg.
-func SendPhase(p pipeline.Phase) tea.Cmd      { return func() tea.Msg { return PhaseMsg{Phase: p} } }
-func SendTile(p tile.Progress) tea.Cmd        { return func() tea.Msg { return TileProgressMsg{Progress: p} } }
-func SendUpload(p pipeline.UploadProgress) tea.Cmd { return func() tea.Msg { return UploadProgressMsg{Progress: p} } }
-func SendDone(r *pipeline.Result) tea.Cmd     { return func() tea.Msg { return DoneMsg{Result: r} } }
-func SendErr(err error) tea.Cmd               { return func() tea.Msg { return ErrMsg{Err: err} } }
+func SendPhase(p pipeline.Phase) tea.Cmd { return func() tea.Msg { return PhaseMsg{Phase: p} } }
+
+// SendTile returns a tea.Cmd that emits a TileProgressMsg.
+func SendTile(p tile.Progress) tea.Cmd { return func() tea.Msg { return TileProgressMsg{Progress: p} } }
+
+// SendUpload returns a tea.Cmd that emits an UploadProgressMsg.
+func SendUpload(p pipeline.UploadProgress) tea.Cmd {
+	return func() tea.Msg { return UploadProgressMsg{Progress: p} }
+}
+
+// SendDone returns a tea.Cmd that emits a DoneMsg.
+func SendDone(r *pipeline.Result) tea.Cmd { return func() tea.Msg { return DoneMsg{Result: r} } }
+
+// SendErr returns a tea.Cmd that emits an ErrMsg.
+func SendErr(err error) tea.Cmd { return func() tea.Msg { return ErrMsg{Err: err} } }

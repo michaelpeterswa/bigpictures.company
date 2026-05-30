@@ -13,6 +13,14 @@ linters:
     - staticcheck
     - unused
   settings:
+    errcheck:
+      # Writes to stdout/stderr in CLI handlers can never fail meaningfully —
+      # the OS sink has already accepted our exit code. Suppressing these
+      # keeps the CLI command code readable.
+      exclude-functions:
+        - fmt.Fprintf
+        - fmt.Fprintln
+        - fmt.Fprint
     revive:
       rules:
         - name: blank-imports

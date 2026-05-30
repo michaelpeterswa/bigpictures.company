@@ -177,7 +177,8 @@ func printUploadSummary(cmd *cobra.Command, res *pipeline.Result) {
 	if res == nil {
 		return
 	}
-	fmt.Fprintf(cmd.OutOrStdout(),
+	fmt.Fprintf(
+		cmd.OutOrStdout(),
 		"ok\n  id:    %s\n  slug:  %s\n  size:  %dx%d (%d tiles)\n  info:  %s\n",
 		res.ID, res.Slug, res.Width, res.Height, res.TileCount, res.InfoJSONURL,
 	)

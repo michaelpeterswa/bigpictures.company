@@ -41,15 +41,20 @@ type GPS struct {
 	Lon float64 `json:"lon"`
 }
 
+// Camera holds the EXIF Make + Model tags after vendor-specific cleanup.
 type Camera struct {
 	Make  string `json:"make,omitempty"`
 	Model string `json:"model,omitempty"`
 }
 
+// Lens holds the lens model string pulled from whichever EXIF lens tag
+// the camera populated (LensModel / LensSpecification / LensInfo).
 type Lens struct {
 	Model string `json:"model,omitempty"`
 }
 
+// Exposure aggregates the standard exposure-related EXIF fields. Fields are
+// omitted (zero-value) when the source EXIF didn't populate them.
 type Exposure struct {
 	ISO         int     `json:"iso,omitempty"`
 	FNumber     float64 `json:"f_number,omitempty"`

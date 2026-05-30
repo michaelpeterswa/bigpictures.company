@@ -48,6 +48,21 @@ migrate-down: $(BIN)
 web-dev:
 	cd web && pnpm dev
 
+.PHONY: web-install
+web-install:
+	cd web && pnpm install --frozen-lockfile
+
+.PHONY: web-lint
+web-lint:
+	cd web && pnpm lint
+
+.PHONY: web-typecheck
+web-typecheck:
+	cd web && pnpm tsc --noEmit
+
 .PHONY: web-build
 web-build:
 	cd web && pnpm build
+
+.PHONY: ci
+ci: lint test web-lint web-typecheck web-build

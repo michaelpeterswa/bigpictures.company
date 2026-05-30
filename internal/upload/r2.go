@@ -48,7 +48,8 @@ func NewClient(ctx context.Context, creds Credentials) (*Client, error) {
 		)
 	}
 	endpoint := fmt.Sprintf("https://%s.r2.cloudflarestorage.com", creds.AccountID)
-	cfg, err := awsconfig.LoadDefaultConfig(ctx,
+	cfg, err := awsconfig.LoadDefaultConfig(
+		ctx,
 		awsconfig.WithRegion("auto"),
 		awsconfig.WithCredentialsProvider(credentials.NewStaticCredentialsProvider(
 			creds.AccessKeyID, creds.SecretAccessKey, "",
