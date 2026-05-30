@@ -1,0 +1,14 @@
+---
+extends: default
+
+ignore: |
+  web/node_modules/
+  web/.next/
+  web/pnpm-lock.yaml
+
+rules:
+  line-length:
+    max: 140
+    level: warning
+  truthy:
+    check-keys: false

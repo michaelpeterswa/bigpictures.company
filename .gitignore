@@ -1,0 +1,39 @@
+# Build artifacts
+/dist/
+/tmp/
+*.test
+*.out
+coverage.html
+coverage.txt
+
+# Editor / OS
+.DS_Store
+.idea/
+.vscode/
+*.swp
+*~
+
+# Secrets / environment
+.env
+.env.local
+.env.*.local
+
+# Node (web/)
+node_modules/
+.next/
+.turbo/
+out/
+.pnpm-store/
+*.tsbuildinfo
+
+# Go
+*.exe
+*.dll
+*.so
+*.dylib
+go.work
+go.work.sum
+vendor/
+
+# Fly
+.fly/

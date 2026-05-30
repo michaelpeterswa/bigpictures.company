@@ -1,0 +1,37 @@
+# Send only what web/Dockerfile needs.
+
+# Go side — irrelevant to the Next.js build.
+cmd/
+internal/
+migrations/
+go.mod
+go.sum
+.golangci.yml
+Makefile
+*.go
+
+# Build outputs.
+dist/
+tmp/
+
+# Web bits the build will recreate.
+web/node_modules/
+web/.next/
+web/.turbo/
+web/out/
+
+# Local + repo metadata.
+.git/
+.github/
+.claude/
+.env
+.env.*
+**/.env
+**/.env.*
+.DS_Store
+*.log
+SPEC.md
+docs/
+infra/
+LICENSE
+README.md
