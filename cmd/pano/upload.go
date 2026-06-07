@@ -243,8 +243,15 @@ func parseLatLon(s string) (*orb.Point, error) {
 	return &pt, nil
 }
 
-// buildRunner wires the real Tiler/Uploader/Repo adapters. Returns a closer
-// that releases the DB pool. Callers should defer the closer.
+// buildRunner wires the real Tiler/Uploader adapters and a lazy DB pool
+// factory. The DB pool is NOT opened here — RepoFactory dials Neon at the
+// moment of insert, after tiling and upload have completed. Opening earlier
+// leaves the pool idle for many minutes during the upload, and a dial after
+// that idle window has wedged in production. Lazy open eliminates that case
+// entirely.
+//
+// Returns a no-op closer for symmetry with the previous signature; the
+// RepoFactory's per-call closer handles pool teardown.
 func buildRunner(ctx context.Context, cfg *config.Config) (*pipeline.Runner, func(), error) {
 	r2, err := upload.NewClient(ctx, upload.Credentials{
 		AccountID:       cfg.R2AccountID,
@@ -255,14 +262,16 @@ func buildRunner(ctx context.Context, cfg *config.Config) (*pipeline.Runner, fun
 	if err != nil {
 		return nil, nil, err
 	}
-	pool, err := db.Open(ctx, cfg.DatabaseURL)
-	if err != nil {
-		return nil, nil, err
-	}
 	runner := &pipeline.Runner{
 		Tiler:    pipeline.TileAdapter{},
 		Uploader: pipeline.UploadAdapter{Client: r2},
-		Repo:     pool,
+		RepoFactory: func(ctx context.Context) (pipeline.Repo, func(), error) {
+			pool, err := db.Open(ctx, cfg.DatabaseURL)
+			if err != nil {
+				return nil, nil, err
+			}
+			return pool, pool.Close, nil
+		},
 	}
-	return runner, pool.Close, nil
+	return runner, func() {}, nil
 }

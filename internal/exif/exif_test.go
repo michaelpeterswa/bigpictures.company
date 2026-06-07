@@ -1,6 +1,8 @@
 package exif
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -152,6 +154,38 @@ func TestAsString_RationalSlice(t *testing.T) {
 	got := asString(v)
 	if got != "1/800" {
 		t.Errorf("asString(%v) = %q, want %q", v, got, "1/800")
+	}
+}
+
+// TestExtract_NoEXIFTreatedAsEmpty guards the tolerance fix for TIFFs that
+// have no EXIF block at all (Hugin/PTGui stitches are the common case).
+// dsoprea surfaces this as ErrNoExif during ParseFile, not just on the later
+// .Exif() call — Extract must treat it as "empty metadata", not an upload
+// failure.
+func TestExtract_NoEXIFTreatedAsEmpty(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "no-exif.tiff")
+	// Minimal valid little-endian TIFF: header + one IFD with just
+	// ImageWidth (tag 256, SHORT, 1). No EXIF IFD pointer (tag 0x8769).
+	tiff := []byte{
+		'I', 'I', 0x2a, 0x00,
+		0x08, 0x00, 0x00, 0x00,
+		0x01, 0x00,
+		0x00, 0x01, 0x03, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00,
+		0x00, 0x00, 0x00, 0x00,
+	}
+	if err := os.WriteFile(path, tiff, 0o644); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+	md, err := Extract(path)
+	if err != nil {
+		t.Fatalf("Extract: %v, want nil for EXIF-less TIFF", err)
+	}
+	if md == nil {
+		t.Fatal("Extract returned nil metadata, want empty struct")
+	}
+	if md.CapturedAt != nil || md.GPS != nil || md.Camera != nil || md.Lens != nil || md.Exposure != nil {
+		t.Errorf("Extract returned non-empty metadata for EXIF-less TIFF: %+v", md)
 	}
 }
 
