@@ -37,9 +37,23 @@ type Panorama struct {
 	CreatedAt    time.Time
 }
 
+// querier is the subset of pgx connections this package's INSERT path needs.
+// Both *pgxpool.Pool and *pgx.Conn satisfy it; pulling the contract up here
+// lets DB and Conn share the SQL.
+type querier interface {
+	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
+}
+
 // InsertPanorama persists a new row, returning the database-assigned ID.
 func (d *DB) InsertPanorama(ctx context.Context, p *Panorama) (string, error) {
-	const q = `
+	return insertPanoramaWith(ctx, d.pool, p)
+}
+
+// insertPanoramaWith is the SQL-bearing implementation shared between *DB
+// (pool-backed) and *Conn (single-connection, used by the end-of-job INSERT
+// path that avoids pgxpool's detached-context dial behavior).
+func insertPanoramaWith(ctx context.Context, q querier, p *Panorama) (string, error) {
+	const sql = `
 		insert into panoramas
 			(slug, title, description, captured_at, location, width, height,
 			 tile_path, thumb_prefix, original_path, exif, tags)
@@ -56,8 +70,8 @@ func (d *DB) InsertPanorama(ctx context.Context, p *Panorama) (string, error) {
 		)
 	}
 	var id string
-	row := d.pool.QueryRow(
-		ctx, q,
+	row := q.QueryRow(
+		ctx, sql,
 		p.Slug, p.Title, p.Description, p.CapturedAt, locArg,
 		p.Width, p.Height, p.TilePath, p.ThumbPrefix, p.OriginalPath,
 		nullableJSON(p.EXIF), p.Tags,

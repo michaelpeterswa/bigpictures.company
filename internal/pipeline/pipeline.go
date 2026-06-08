@@ -173,8 +173,12 @@ type Runner struct {
 // These are vars so the test suite can shrink them to milliseconds; production
 // code MUST NOT touch them — use insertTimeoutsForTest instead.
 var (
-	insertContextTimeout = 25 * time.Second
-	insertHardTimeout    = 30 * time.Second
+	// Generous enough to accommodate ConnectAndInsert's full retry budget
+	// (~4 attempts × 15s ConnectTimeout + ~7s backoff = ~67s worst case)
+	// while still bounding a true wedge. Under normal operation with a
+	// running heartbeat, the first attempt lands in well under 2 seconds.
+	insertContextTimeout = 55 * time.Second
+	insertHardTimeout    = 60 * time.Second
 )
 
 // insertTimeoutsForTest swaps in test budgets and returns the previous values

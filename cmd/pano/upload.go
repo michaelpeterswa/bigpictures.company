@@ -97,6 +97,14 @@ func runUpload(cmd *cobra.Command, src string, f uploadFlags) error {
 	}
 	defer closeFn()
 
+	// Keep the Neon compute from auto-suspending during the multi-minute
+	// upload phase. The heartbeat is best-effort: if it fails to dial it
+	// quietly retries; if Neon is unreachable the entire upload, the
+	// pipeline's insert-step retry+backoff still handles it. See
+	// internal/db/heartbeat.go for the rationale.
+	stopHeartbeat := db.StartHeartbeat(cmd.Context(), cfg.DatabaseURL, db.HeartbeatInterval)
+	defer stopHeartbeat()
+
 	tmp := f.tmpDir
 	if tmp == "" {
 		tmp = cfg.TmpDir
@@ -243,15 +251,24 @@ func parseLatLon(s string) (*orb.Point, error) {
 	return &pt, nil
 }
 
-// buildRunner wires the real Tiler/Uploader adapters and a lazy DB pool
-// factory. The DB pool is NOT opened here — RepoFactory dials Neon at the
-// moment of insert, after tiling and upload have completed. Opening earlier
-// leaves the pool idle for many minutes during the upload, and a dial after
-// that idle window has wedged in production. Lazy open eliminates that case
-// entirely.
+// buildRunner wires the real Tiler/Uploader adapters and a Repo adapter
+// that runs the end-of-job INSERT via db.ConnectAndInsert — a fresh
+// single-conn dial per attempt with exponential-backoff retry, NOT a
+// long-lived pool. See internal/db/conn.go and the design notes:
 //
-// Returns a no-op closer for symmetry with the previous signature; the
-// RepoFactory's per-call closer handles pool teardown.
+//   - pgxpool's puddle layer detaches the caller's context during the
+//     background dial, so context.WithTimeout around the INSERT cannot
+//     abort a wedged dial. ConnConfig.ConnectTimeout is the only knob.
+//   - Neon's compute auto-suspends after ~5 minutes of DB inactivity by
+//     default. A long CPU/upload-bound job that holds an idle pool will
+//     reliably trip suspend; the next dial pays the cold-start tax.
+//
+// The runner's heartbeat (started separately in runUpload) keeps the
+// compute warm during the upload, so under normal conditions the dial
+// here lands in well under a second. The retry loop covers transient
+// blips and the (very rare) case where the heartbeat itself is lost.
+//
+// Returns a no-op closer for signature compatibility.
 func buildRunner(ctx context.Context, cfg *config.Config) (*pipeline.Runner, func(), error) {
 	r2, err := upload.NewClient(ctx, upload.Credentials{
 		AccountID:       cfg.R2AccountID,
@@ -262,16 +279,25 @@ func buildRunner(ctx context.Context, cfg *config.Config) (*pipeline.Runner, fun
 	if err != nil {
 		return nil, nil, err
 	}
+	repoAdapter := retryingRepo{url: cfg.DatabaseURL}
 	runner := &pipeline.Runner{
 		Tiler:    pipeline.TileAdapter{},
 		Uploader: pipeline.UploadAdapter{Client: r2},
-		RepoFactory: func(ctx context.Context) (pipeline.Repo, func(), error) {
-			pool, err := db.Open(ctx, cfg.DatabaseURL)
-			if err != nil {
-				return nil, nil, err
-			}
-			return pool, pool.Close, nil
+		RepoFactory: func(_ context.Context) (pipeline.Repo, func(), error) {
+			return repoAdapter, func() {}, nil
 		},
 	}
 	return runner, func() {}, nil
+}
+
+// retryingRepo satisfies pipeline.Repo by delegating to db.ConnectAndInsert,
+// which dials a fresh single-conn per attempt and retries with
+// exponential-backoff + jitter on transient connection errors.
+type retryingRepo struct {
+	url string
+}
+
+// InsertPanorama runs the end-of-job INSERT with retry+backoff.
+func (r retryingRepo) InsertPanorama(ctx context.Context, p *db.Panorama) (string, error) {
+	return db.ConnectAndInsert(ctx, r.url, p, db.RetryOptions{})
 }
