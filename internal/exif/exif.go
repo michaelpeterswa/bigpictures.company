@@ -8,6 +8,7 @@
 package exif
 
 import (
+	"errors"
 	"fmt"
 	"reflect"
 	"strconv"
@@ -79,6 +80,13 @@ func flatTags(path string) (map[string]any, error) {
 	parser := tiffstructure.NewTiffMediaParser()
 	mc, err := parser.ParseFile(path)
 	if err != nil {
+		// dsoprea's tiff parser surfaces a missing-EXIF block as goexif's
+		// ErrNoExif sentinel during ParseFile (not just on tmc.Exif()).
+		// Hugin/PTGui frequently strip EXIF entirely from stitched output —
+		// treat that as "empty metadata", not as an upload failure.
+		if errors.Is(err, goexif.ErrNoExif) {
+			return map[string]any{}, nil
+		}
 		return nil, problems.New(
 			"exif/parse-failed",
 			"Could not parse TIFF",

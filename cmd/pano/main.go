@@ -53,6 +53,7 @@ func newRootCmd() *cobra.Command {
 		newShowCmd(),
 		newDeleteCmd(),
 		newReprocessCmd(),
+		newPublishCmd(),
 	)
 	return cmd
 }
