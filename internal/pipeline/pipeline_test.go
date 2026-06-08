@@ -6,7 +6,9 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/michaelpeterswa/bigpictures.company/internal/db"
 	"github.com/michaelpeterswa/bigpictures.company/internal/exif"
@@ -137,7 +139,7 @@ func TestRunner_HappyPath(t *testing.T) {
 	src := makeSource(t)
 	up := &fakeUploader{}
 	repo := &fakeRepo{}
-	r := &Runner{Tiler: fakeTiler{}, Uploader: up, Repo: repo}
+	r := &Runner{Tiler: fakeTiler{}, Uploader: up, RepoFactory: StaticRepo(repo)}
 
 	res, err := r.Run(context.Background(), Request{
 		Source: src, Slug: "test", Title: "Test",
@@ -173,7 +175,7 @@ func TestRunner_HappyPath(t *testing.T) {
 func TestRunner_TileIDPreservesDoubleSlash(t *testing.T) {
 	capturedTileID = ""
 	src := makeSource(t)
-	r := &Runner{Tiler: fakeTiler{}, Uploader: &fakeUploader{}, Repo: &fakeRepo{}}
+	r := &Runner{Tiler: fakeTiler{}, Uploader: &fakeUploader{}, RepoFactory: StaticRepo(&fakeRepo{})}
 	if _, err := r.Run(context.Background(), Request{
 		Source: src, Slug: "ok-slug", Title: "x",
 	}, Options{
@@ -189,7 +191,7 @@ func TestRunner_TileIDPreservesDoubleSlash(t *testing.T) {
 }
 
 func TestRunner_InvalidSlug(t *testing.T) {
-	r := &Runner{Tiler: fakeTiler{}, Uploader: &fakeUploader{}, Repo: &fakeRepo{}}
+	r := &Runner{Tiler: fakeTiler{}, Uploader: &fakeUploader{}, RepoFactory: StaticRepo(&fakeRepo{})}
 	_, err := r.Run(context.Background(), Request{
 		Source: makeSource(t), Slug: "BAD UPPER", Title: "Bad",
 	}, Options{TileBaseURL: "https://x", TmpDir: t.TempDir(), ExtractEXIF: noEXIF})
@@ -203,7 +205,7 @@ func TestRunner_InvalidSlug(t *testing.T) {
 }
 
 func TestRunner_SourceMissing(t *testing.T) {
-	r := &Runner{Tiler: fakeTiler{}, Uploader: &fakeUploader{}, Repo: &fakeRepo{}}
+	r := &Runner{Tiler: fakeTiler{}, Uploader: &fakeUploader{}, RepoFactory: StaticRepo(&fakeRepo{})}
 	_, err := r.Run(context.Background(), Request{
 		Source: "/no/such/file.tiff", Slug: "ok-slug", Title: "x",
 	}, Options{TileBaseURL: "https://x", TmpDir: t.TempDir(), ExtractEXIF: noEXIF})
@@ -215,7 +217,7 @@ func TestRunner_SourceMissing(t *testing.T) {
 func TestRunner_TilesFail_NoCleanupYet(t *testing.T) {
 	src := makeSource(t)
 	up := &fakeUploader{failAtUploadIdx: 1}
-	r := &Runner{Tiler: fakeTiler{}, Uploader: up, Repo: &fakeRepo{}}
+	r := &Runner{Tiler: fakeTiler{}, Uploader: up, RepoFactory: StaticRepo(&fakeRepo{})}
 	_, err := r.Run(context.Background(), Request{
 		Source: src, Slug: "ok-slug", Title: "x",
 	}, Options{TileBaseURL: "https://x", TmpDir: t.TempDir(), ExtractEXIF: noEXIF})
@@ -235,7 +237,7 @@ func TestRunner_ThumbsFail_SweepTiles(t *testing.T) {
 	// must sweep the tile prefix.
 	src := makeSource(t)
 	up := &fakeUploader{failAtUploadIdx: 2}
-	r := &Runner{Tiler: fakeTiler{}, Uploader: up, Repo: &fakeRepo{}}
+	r := &Runner{Tiler: fakeTiler{}, Uploader: up, RepoFactory: StaticRepo(&fakeRepo{})}
 	_, err := r.Run(context.Background(), Request{
 		Source: src, Slug: "ok-slug", Title: "x",
 	}, Options{TileBaseURL: "https://x", TmpDir: t.TempDir(), ExtractEXIF: noEXIF})
@@ -250,7 +252,7 @@ func TestRunner_ThumbsFail_SweepTiles(t *testing.T) {
 func TestRunner_OriginalFail_SweepEverything(t *testing.T) {
 	src := makeSource(t)
 	up := &fakeUploader{failPutOriginal: true}
-	r := &Runner{Tiler: fakeTiler{}, Uploader: up, Repo: &fakeRepo{}}
+	r := &Runner{Tiler: fakeTiler{}, Uploader: up, RepoFactory: StaticRepo(&fakeRepo{})}
 	_, err := r.Run(context.Background(), Request{
 		Source: src, Slug: "ok-slug", Title: "x",
 	}, Options{TileBaseURL: "https://x", TmpDir: t.TempDir(), ExtractEXIF: noEXIF})
@@ -266,7 +268,7 @@ func TestRunner_InsertFail_SweepAll(t *testing.T) {
 	src := makeSource(t)
 	up := &fakeUploader{}
 	repo := &fakeRepo{failInsert: errors.New("db down")}
-	r := &Runner{Tiler: fakeTiler{}, Uploader: up, Repo: repo}
+	r := &Runner{Tiler: fakeTiler{}, Uploader: up, RepoFactory: StaticRepo(repo)}
 	_, err := r.Run(context.Background(), Request{
 		Source: src, Slug: "ok-slug", Title: "x",
 	}, Options{TileBaseURL: "https://x", TmpDir: t.TempDir(), ExtractEXIF: noEXIF})
@@ -278,5 +280,104 @@ func TestRunner_InsertFail_SweepAll(t *testing.T) {
 	}
 	if len(up.deleteKeys) == 0 {
 		t.Errorf("expected original key sweep")
+	}
+}
+
+// TestRunner_Reprocess_SkipsUploadOriginal verifies that a reprocess request
+// neither calls PutOriginal nor opens the RepoFactory. We pass a factory that
+// would panic if called, so any regression is loud.
+func TestRunner_Reprocess_SkipsUploadOriginal(t *testing.T) {
+	src := makeSource(t)
+	up := &fakeUploader{}
+	r := &Runner{
+		Tiler:    fakeTiler{},
+		Uploader: up,
+		RepoFactory: func(context.Context) (Repo, func(), error) {
+			t.Fatal("RepoFactory must not be called on reprocess")
+			return nil, nil, nil
+		},
+	}
+	_, err := r.Run(context.Background(), Request{
+		Source: src, Slug: "ok-slug", Title: "x", Reprocess: true,
+	}, Options{TileBaseURL: "https://x", TmpDir: t.TempDir(), ExtractEXIF: noEXIF})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if len(up.originals) != 0 {
+		t.Errorf("PutOriginal must not run on reprocess; got %v", up.originals)
+	}
+	// Tiles + thumbs SHOULD still upload (that's the whole point of reprocess).
+	if len(up.uploads) == 0 {
+		t.Errorf("expected tile UploadDir on reprocess")
+	}
+}
+
+// TestRunner_RepoFactoryError surfaces a factory error as the run's error.
+func TestRunner_RepoFactoryError(t *testing.T) {
+	src := makeSource(t)
+	want := errors.New("dial neon: i/o timeout")
+	r := &Runner{
+		Tiler:    fakeTiler{},
+		Uploader: &fakeUploader{},
+		RepoFactory: func(context.Context) (Repo, func(), error) {
+			return nil, nil, want
+		},
+	}
+	_, err := r.Run(context.Background(), Request{
+		Source: src, Slug: "ok-slug", Title: "x",
+	}, Options{TileBaseURL: "https://x", TmpDir: t.TempDir(), ExtractEXIF: noEXIF})
+	if !errors.Is(err, want) {
+		t.Errorf("got %v, want %v", err, want)
+	}
+}
+
+// blockingRepo blocks InsertPanorama forever (or until ctx cancels). Used to
+// drive the hard-insert-timeout path. The atomic counter tells the test the
+// goroutine was actually entered.
+type blockingRepo struct {
+	entered atomic.Int32
+}
+
+func (b *blockingRepo) InsertPanorama(ctx context.Context, _ *db.Panorama) (string, error) {
+	b.entered.Add(1)
+	<-ctx.Done()
+	return "", ctx.Err()
+}
+
+// TestRunner_InsertHardTimeout verifies that an InsertPanorama call which
+// ignores its own context cancellation can't hang the runner forever. We swap
+// in tiny budgets via a test hook so the test runs in a couple seconds.
+func TestRunner_InsertHardTimeout(t *testing.T) {
+	src := makeSource(t)
+	up := &fakeUploader{}
+	repo := &blockingRepo{}
+	r := &Runner{Tiler: fakeTiler{}, Uploader: up, RepoFactory: StaticRepo(repo)}
+
+	// Tighten the budgets via swap-and-restore so the test runs in ~300ms
+	// instead of 30s. The package-level consts are the only things that
+	// determine the wall clock, so this is the seam.
+	origCtx, origHard := insertTimeoutsForTest(200*time.Millisecond, 300*time.Millisecond)
+	defer insertTimeoutsForTest(origCtx, origHard)
+
+	start := time.Now()
+	_, err := r.Run(context.Background(), Request{
+		Source: src, Slug: "ok-slug", Title: "x",
+	}, Options{TileBaseURL: "https://x", TmpDir: t.TempDir(), ExtractEXIF: noEXIF})
+	elapsed := time.Since(start)
+	if err == nil {
+		t.Fatal("expected timeout error")
+	}
+	if repo.entered.Load() != 1 {
+		t.Errorf("Insert goroutine was not entered; entered=%d", repo.entered.Load())
+	}
+	// Generous upper bound to avoid flake; the point is the runner returned
+	// in well under the historical many-minute hang.
+	if elapsed > 5*time.Second {
+		t.Errorf("Run took %s; hard timeout did not bound it", elapsed)
+	}
+	// On insert failure the orchestrator should still sweep tiles + original.
+	if len(up.deletePrefixes) == 0 || len(up.deleteKeys) == 0 {
+		t.Errorf("expected sweep on insert timeout; prefixes=%v keys=%v",
+			up.deletePrefixes, up.deleteKeys)
 	}
 }

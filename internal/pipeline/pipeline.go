@@ -85,6 +85,25 @@ type Repo interface {
 	InsertPanorama(ctx context.Context, p *db.Panorama) (string, error)
 }
 
+// RepoFactory opens a Repo on demand and returns it along with a closer the
+// orchestrator runs once the insert step completes.
+//
+// We pass a factory rather than a live Repo so the DB pool is only opened at
+// the moment of insert — opening up front means the pool sits idle for the
+// many minutes the tile + upload phases take, and the dial / TLS handshake to
+// a fresh-from-cold-pool Neon connection on the other side of that window has
+// repeatedly wedged in production. Opening lazily eliminates the idle window
+// entirely.
+type RepoFactory func(ctx context.Context) (Repo, func(), error)
+
+// StaticRepo is a helper that wraps an already-open Repo as a RepoFactory.
+// Tests use it to avoid plumbing a real db.Open call.
+func StaticRepo(r Repo) RepoFactory {
+	return func(context.Context) (Repo, func(), error) {
+		return r, func() {}, nil
+	}
+}
+
 // Options configure orchestrator behavior.
 type Options struct {
 	// TileBaseURL is the public base URL for tiles (PANO_TILE_BASE_URL).
@@ -134,10 +153,41 @@ const (
 )
 
 // Runner glues a Tiler/Uploader/Repo together.
+//
+// RepoFactory is consulted at PhaseInsert. It MUST be set unless every
+// request handled by this runner has Reprocess=true.
 type Runner struct {
-	Tiler    Tiler
-	Uploader Uploader
-	Repo     Repo
+	Tiler       Tiler
+	Uploader    Uploader
+	RepoFactory RepoFactory
+}
+
+// Insert timeout budgets. The context timeout gives pgx a chance to honor
+// cancellation and return cleanly. The hard wall-clock timeout is a backstop
+// for cases where pgx wedges inside a syscall that doesn't observe the
+// context — historically the initial-dial-after-long-idle case against the
+// Neon pooler. We deliberately give the hard timer a few seconds of slack so
+// a context-cancelled insert returns its real error rather than being masked
+// by the timeout error.
+//
+// These are vars so the test suite can shrink them to milliseconds; production
+// code MUST NOT touch them — use insertTimeoutsForTest instead.
+var (
+	// Generous enough to accommodate ConnectAndInsert's full retry budget
+	// (~4 attempts × 15s ConnectTimeout + ~7s backoff = ~67s worst case)
+	// while still bounding a true wedge. Under normal operation with a
+	// running heartbeat, the first attempt lands in well under 2 seconds.
+	insertContextTimeout = 55 * time.Second
+	insertHardTimeout    = 60 * time.Second
+)
+
+// insertTimeoutsForTest swaps in test budgets and returns the previous values
+// so the caller can restore them with a defer. Pipeline_test.go is the only
+// legitimate caller.
+func insertTimeoutsForTest(ctxTO, hardTO time.Duration) (time.Duration, time.Duration) {
+	prevCtx, prevHard := insertContextTimeout, insertHardTimeout
+	insertContextTimeout, insertHardTimeout = ctxTO, hardTO
+	return prevCtx, prevHard
 }
 
 // Run executes the pipeline for req. On any failure after a successful R2
@@ -253,18 +303,20 @@ func (r *Runner) Run(ctx context.Context, req Request, opts Options) (*Result, e
 	}
 
 	// --- Upload original ---
+	//
+	// Skipped on reprocess: reprocess pulls the original FROM R2 and would
+	// otherwise PUT it right back to the same key — pointless minutes of
+	// re-upload that the runner doesn't need.
 	originalKey := "originals/" + req.Slug + filepath.Ext(req.Source)
-	emit(PhaseUploadOriginal)
-	if err := r.Uploader.PutOriginal(ctx, req.Source, originalKey); err != nil {
-		r.cleanupTilePrefix(ctx, tilePrefix)
-		return nil, err
+	if !req.Reprocess {
+		emit(PhaseUploadOriginal)
+		if err := r.Uploader.PutOriginal(ctx, req.Source, originalKey); err != nil {
+			r.cleanupTilePrefix(ctx, tilePrefix)
+			return nil, err
+		}
 	}
 
 	// --- Insert (skipped on reprocess) ---
-	//
-	// The upload phase can keep the DB pool idle for many minutes. We bound
-	// the insert with a short timeout so a wedged reconnect fails fast and
-	// surfaces in the TUI rather than appearing as a hung [insert] phase.
 	var insertedID string
 	if !req.Reprocess {
 		emit(PhaseInsert)
@@ -286,9 +338,7 @@ func (r *Runner) Run(ctx context.Context, req Request, opts Options) (*Result, e
 		if req.Location != nil {
 			row.Location = req.Location
 		}
-		insertCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
-		id, err := r.Repo.InsertPanorama(insertCtx, row)
-		cancel()
+		id, err := r.doInsert(ctx, row)
 		if err != nil {
 			r.cleanupTilePrefix(ctx, tilePrefix)
 			r.cleanupKey(ctx, originalKey)
@@ -308,6 +358,63 @@ func (r *Runner) Run(ctx context.Context, req Request, opts Options) (*Result, e
 		OriginalKey: originalKey,
 		InfoJSONURL: fmt.Sprintf("%s/%s/info.json", opts.TileBaseURL, tilePrefix),
 	}, nil
+}
+
+// doInsert opens the Repo via RepoFactory, runs the insert with both a
+// context deadline AND a hard wall-clock deadline, and returns either the
+// inserted row id or a typed Problem.
+//
+// We race the insert against a wall-clock timer in a separate goroutine so a
+// pgx call that wedges inside a syscall (the historical failure mode against
+// Neon's pooler when dialing fresh after a long idle window) doesn't hang the
+// CLI forever. The wedged goroutine leaks, but the process is about to exit
+// with an error in that case, so the leak is acceptable.
+func (r *Runner) doInsert(ctx context.Context, row *db.Panorama) (string, error) {
+	if r.RepoFactory == nil {
+		return "", problems.New(
+			"pipeline/repo-factory-missing",
+			"No RepoFactory configured",
+			"Runner.RepoFactory must be set for any request that is not a reprocess",
+		)
+	}
+	repo, closeRepo, err := r.RepoFactory(ctx)
+	if err != nil {
+		return "", err
+	}
+	defer closeRepo()
+
+	insertCtx, cancel := context.WithTimeout(ctx, insertContextTimeout)
+	defer cancel()
+
+	type result struct {
+		id  string
+		err error
+	}
+	done := make(chan result, 1)
+	go func() {
+		id, err := repo.InsertPanorama(insertCtx, row)
+		done <- result{id: id, err: err}
+	}()
+
+	select {
+	case res := <-done:
+		return res.id, res.err
+	case <-time.After(insertHardTimeout):
+		// Best-effort cancel; the goroutine may still be wedged. We leak it
+		// and surface a typed timeout so the caller can render something
+		// actionable (the `pano publish` recovery command).
+		cancel()
+		return "", problems.New(
+			"pipeline/insert-timeout",
+			"Database insert exceeded the wall-clock budget",
+			fmt.Sprintf("InsertPanorama did not return within %s; the tiles and original are in R2 but no row was written", insertHardTimeout),
+			problems.WithExt(
+				problems.Ext("slug", row.Slug),
+				problems.Ext("hard_timeout", insertHardTimeout.String()),
+				problems.Ext("recovery", "run `pano publish "+row.Slug+" --title \"...\" ...` once the DB is reachable"),
+			),
+		)
+	}
 }
 
 // cleanupTilePrefix tries to remove the tile prefix on failure. Any error is

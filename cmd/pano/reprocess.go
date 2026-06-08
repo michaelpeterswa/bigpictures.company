@@ -80,11 +80,12 @@ func newReprocessCmd() *cobra.Command {
 				return err
 			}
 
+			// Reprocess skips the insert step entirely; no RepoFactory needed.
 			runner := &pipeline.Runner{
 				Tiler:    pipeline.TileAdapter{},
 				Uploader: pipeline.UploadAdapter{Client: r2},
-				Repo:     pool, // unused on Reprocess: true, but interface requires non-nil
 			}
+			_ = pool // silence unused; we still need it for GetPanoramaBySlug above
 			res, err := runner.Run(cmd.Context(), pipeline.Request{
 				Source:    tmp.Name(),
 				Slug:      row.Slug,
